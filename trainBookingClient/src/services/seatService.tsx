@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { ScheduleEntity } from '@/types/schedule';
 import { TrainStructure } from '@/types/trainStructure'; // Шлях до вашого файлу з типами
 
 export const getAvailableSeats = async (trainId: number): Promise<TrainStructure> => {
@@ -17,3 +18,8 @@ export const getAvailableSeats = async (trainId: number): Promise<TrainStructure
     throw error;
   }
 };
+
+
+
+
+

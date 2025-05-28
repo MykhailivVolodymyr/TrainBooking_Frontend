@@ -10,10 +10,12 @@ const Footer = () => {
       sx={{
         backgroundColor: '#3f51b5', // Темно-синій колір
         color: 'white', // Білий колір тексту для кращої контрастності
-        py: 3,
+        py: 2, // Зменшено вертикальний padding зверху та знизу
+        pb: 3, // Зменшено padding знизу
         mt: 3,
       }}
     >
+      {/* Вміст футера залишається без змін */}
       <Grid container justifyContent="space-around" spacing={2}>
         <Grid item xs={12} sm={6} md={4} textAlign={{ xs: 'center', sm: 'left' }}>
           <Typography variant="h6" color="inherit" gutterBottom>

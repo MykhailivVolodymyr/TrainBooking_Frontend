@@ -9,54 +9,17 @@ import { blue } from '@mui/material/colors';
 import TrainIcon from '@mui/icons-material/Train';
 import { ScheduleEntity } from '@/types/schedule';
 import { useRouter } from 'next/navigation';
-import { getRouteDetails } from '@/services/routeService'; // Імпортуємо функцію getRouteDetails
-import { RouteDetailsEntity } from '@/types/routeDetails'; // Імпортуємо тип RouteDetailsEntity
+import { getRouteDetails } from '@/services/routeService';
+import { RouteDetailsEntity } from '@/types/routeDetails';
 import CloseIcon from '@mui/icons-material/Close';
+import { getAvailableSeats} from '@/services/seatService'; // Імпортуємо сервіс для отримання місць
+import { TrainStructure } from '@/types/trainStructure';
+import { calculateTravelTime, formatDate, calculateCarriagePrice, modalStyle, timelineDot, timelineEmptyDot, timelineLine, stationInfo } from '@/services/helperTrainCard';
 
 interface TicketCardProps {
   schedule: ScheduleEntity;
 }
 
-const modalStyle = {
-  position: 'absolute' as 'absolute',
-  top: '50%',
-  left: '50%',
-  transform: 'translate(-50%, -50%)',
-  width: 400,
-  maxHeight: '80vh',
-  bgcolor: 'background.paper',
-  border: 'none',
-  boxShadow: 24,
-  borderRadius: 8,
-  p: 3,
-  overflowY: 'auto',
-};
-
-const timelineDot = {
-  width: 10,
-  height: 10,
-  borderRadius: '50%',
-  backgroundColor: blue[500],
-};
-
-const timelineEmptyDot = {
-  width: 10,
-  height: 10,
-  borderRadius: '50%',
-  border: `2px solid ${blue[500]}`,
-  backgroundColor: 'transparent',
-};
-
-const timelineLine = {
-  width: 2,
-  backgroundColor: blue[200],
-  position: 'absolute' as 'absolute',
-  zIndex: -1,
-};
-
-const stationInfo = {
-  marginLeft: 16,
-};
 
 function TrainCard({ schedule }: TicketCardProps) {
   const router = useRouter();
@@ -64,9 +27,54 @@ function TrainCard({ schedule }: TicketCardProps) {
   const [routeDetails, setRouteDetails] = useState<RouteDetailsEntity[] | null>(null);
   const [loadingRouteDetails, setLoadingRouteDetails] = useState(false);
   const [routeDetailsError, setRouteDetailsError] = useState<string | null>(null);
+  const [availableSeats, setAvailableSeats] = useState<TrainStructure | null>(null);
+  const [loadingSeats, setLoadingSeats] = useState(false);
+  const [seatsError, setSeatsError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const fetchAvailableSeats = async () => {
+      setLoadingSeats(true);
+      setSeatsError(null);
+      try {
+        const data = await getAvailableSeats(schedule.scheduleId);
+        setAvailableSeats(data);
+      } catch (error) {
+        console.error('Помилка отримання доступних місць:', error);
+        setSeatsError('Не вдалося завантажити інформацію про доступні місця.');
+      } finally {
+        setLoadingSeats(false);
+      }
+    };
+
+    fetchAvailableSeats();
+  }, [schedule.scheduleId]);
 
   const handleCardClick = () => {
-    router.push(`/train/${schedule.scheduleId}`);
+    // Prepare prices object to pass as state
+    const carriagePrices = availableSeats?.carriages.reduce((acc, carriage) => {
+      const price = calculateCarriagePrice(schedule, carriage.carriageType);
+      if (price !== null) {
+        acc[carriage.carriageType] = price;
+      }
+      return acc;
+    }, {} as Record<string, number>);
+
+    const pricesString = JSON.stringify(carriagePrices);
+    // Формуємо об'єкт trip
+    const tripObject = {
+        trip: {
+            trainId: schedule.trainId,
+            departureTime: `${schedule.realDepartureDateFromCity}T${schedule.arrivalTimeFromCity}`, // додати Z
+            arrivalTime: `${schedule.realDepartureDateToCity}T${schedule.arrivalTimeToCity}`,
+            startStationName: schedule.fromStationName,
+            endStationName: schedule.toStationName,
+            sheduleId: schedule.scheduleId,
+          },
+      };
+  
+      const tripString = JSON.stringify(tripObject);
+
+      router.push(`/train/${schedule.scheduleId}?scheduleId=${schedule.scheduleId}&prices=${encodeURIComponent(pricesString)}&trip=${encodeURIComponent(tripString)}`);
   };
 
   const handleOpenModal = () => {
@@ -97,41 +105,6 @@ function TrainCard({ schedule }: TicketCardProps) {
       });
   };
 
-  const formatDate = (dateString: string): string => {
-    const [year, month, day] = dateString.split('-');
-    const formattedDay = day.padStart(2, '0');
-    const formattedMonth = month.padStart(2, '0');
-    return `${formattedDay}.${formattedMonth}`;
-  };
-
-  const calculateTravelTime = (departureDate: string, departureTime: string, arrivalDate: string, arrivalTime: string): string => {
-    const [depYear, depMonth, depDay] = departureDate.split('-');
-    const [depHours, depMinutes] = departureTime.split(':');
-    const departureDateTime = new Date(
-      parseInt(depYear, 10),
-      parseInt(depMonth, 10) - 1,
-      parseInt(depDay, 10),
-      parseInt(depHours, 10),
-      parseInt(depMinutes, 10)
-    );
-
-    const [arrYear, arrMonth, arrDay] = arrivalDate.split('-');
-    const [arrHours, arrMinutes] = arrivalTime.split(':');
-    const arrivalDateTime = new Date(
-      parseInt(arrYear, 10),
-      parseInt(arrMonth, 10) - 1,
-      parseInt(arrDay, 10),
-      parseInt(arrHours, 10),
-      parseInt(arrMinutes, 10)
-    );
-
-    const timeDifferenceMs = arrivalDateTime.getTime() - departureDateTime.getTime();
-    const totalMinutes = Math.floor(timeDifferenceMs / (1000 * 60));
-    const hours = Math.floor(totalMinutes / 60);
-    const minutes = totalMinutes % 60;
-
-    return `${hours} год ${minutes} хв`;
-  };
 
   const travelTime = calculateTravelTime(
     schedule.realDepartureDateFromCity,
@@ -139,6 +112,16 @@ function TrainCard({ schedule }: TicketCardProps) {
     schedule.realDepartureDateToCity,
     schedule.arrivalTimeToCity
   );
+
+  const carriageTypes = availableSeats?.carriages.reduce((acc, carriage) => {
+    const existingType = acc.find(item => item.type === carriage.carriageType);
+    if (existingType) {
+      existingType.capacity += carriage.capacity;
+    } else {
+      acc.push({ type: carriage.carriageType, capacity: carriage.capacity });
+    }
+    return acc;
+  }, [] as { type: string; capacity: number }[]);
 
   return (
     <>
@@ -196,20 +179,34 @@ function TrainCard({ schedule }: TicketCardProps) {
               </Box>
             </Box>
 
-            <Box onClick={(e) => e.stopPropagation()}>
-              <Button sx={{ all: 'unset', cursor: 'pointer' }}>
-                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', borderLeft: '1px solid rgba(0, 0, 0, 0.12)', pl: 2 }}>
-                  <Typography variant="subtitle2" sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
-                    Купе
-                  </Typography>
-                  <Typography variant="caption" sx={{ fontSize: '0.9rem' }}>
-                    44 місць
-                  </Typography>
-                  <Typography variant="h6" sx={{ fontSize: '1.4rem', fontWeight: 'bold' }}>
-                    659 ₴
-                  </Typography>
+            <Box sx={{ display: 'flex', alignItems: 'center' }}>
+              {loadingSeats ? (
+                <Typography variant="caption">Завантаження місць...</Typography>
+              ) : seatsError ? (
+                <Typography variant="caption" color="error">{seatsError}</Typography>
+              ) : carriageTypes && carriageTypes.length > 0 ? (
+                <Box sx={{ display: 'flex', flexDirection: 'row', flexWrap: 'wrap', gap: 1 }}> {/* Додано ці стилі */}
+                  {carriageTypes.map((carriageInfo) => (
+                    <Box key={carriageInfo.type} onClick={(e) => e.stopPropagation()}>
+                      <Button sx={{ all: 'unset', cursor: 'pointer' }}>
+                        <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'center', textAlign: 'center', borderLeft: '1px solid rgba(0, 0, 0, 0.12)', pl: 2 }}>
+                          <Typography variant="subtitle2" sx={{ fontSize: '1rem', fontWeight: 'bold' }}>
+                            {carriageInfo.type}
+                          </Typography>
+                          <Typography variant="caption" sx={{ fontSize: '0.9rem' }}>
+                            {carriageInfo.capacity} місць
+                          </Typography>
+                          <Typography variant="h6" sx={{ fontSize: '1.4rem', fontWeight: 'bold' }}>
+                            {calculateCarriagePrice(schedule, carriageInfo.type) !== null ? `${calculateCarriagePrice(schedule, carriageInfo.type)} ₴` : '—'}
+                          </Typography>
+                        </Box>
+                      </Button>
+                    </Box>
+                  ))}
                 </Box>
-              </Button>
+              ) : (
+                <Typography variant="caption">Немає інформації про місця</Typography>
+              )}
             </Box>
           </Box>
 
@@ -220,7 +217,7 @@ function TrainCard({ schedule }: TicketCardProps) {
             <Typography variant="body2" sx={{ fontSize: '0.9rem', color: 'rgba(0, 0, 0, 0.6)', mr: 3 }}>
               {schedule.routeCities}
             </Typography>
-            <Button 
+            <Button
               size="small"
               sx={{ textAlign: 'left', justifyContent: 'flex-start', fontSize: '0.9rem', textTransform: 'none', ml: 2 }}
               onClick={handleRouteDetailsClick}
@@ -254,10 +251,13 @@ function TrainCard({ schedule }: TicketCardProps) {
                 const isDeparture = station.stationName === schedule.fromStationName;
                 const isArrival = station.stationName === schedule.toStationName;
                 const isFilled = isDeparture || isArrival;
+
                 return (
                   <Box key={station.stationOrder} sx={{ display: 'flex', alignItems: 'center', py: 1.5 }}>
                     <Box sx={isFilled ? timelineDot : timelineEmptyDot} />
-                    {index > 0 && <Box sx={{ ...timelineLine, top: 8 + 24 * (index - 1), bottom: 8 + 24 * (routeDetails.length - 2 - index + 1), left: 4 }} />}
+                    {index > 0 && !(isFilled || (index < routeDetails.length - 1 && (routeDetails[index + 1].stationName === schedule.fromStationName || routeDetails[index + 1].stationName === schedule.toStationName))) && (
+                      <Box sx={{ ...timelineLine, top: 8 + 24 * (index - 1), bottom: 8 + 24 * (routeDetails.length - 2 - index + 1), left: 4 }} />
+                    )}
                     <Box sx={stationInfo}>
                       <Typography variant="subtitle2">{station.arrivalTime?.slice(0, 5) || '—'}{station.departureTime && station.arrivalTime !== station.departureTime ? ` - ${station.departureTime?.slice(0, 5)}` : ''}</Typography>
                       <Typography>{station.stationName}</Typography>
